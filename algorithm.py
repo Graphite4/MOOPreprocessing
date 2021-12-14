@@ -11,6 +11,7 @@ from pymoo.optimize import minimize
 from pymoo.factory import get_crossover, get_mutation, get_sampling, get_termination, get_selection
 from operator import itemgetter
 
+import visualisation
 import pandas as pd
 import pickle
 import os
@@ -36,6 +37,8 @@ class AECCR:
         self._y = y
         self.scaling = scaling
         self.n = n
+        self.radii = None
+        self.appended = None
 
         self.set_distances()
 
@@ -69,7 +72,7 @@ class AECCR:
 
         energy = energy * (self._X.shape[1] ** self.scaling)
 
-        radii = np.zeros(len(self._minority))
+        self.radii = np.zeros(len(self._minority))
         translations = np.zeros(self._majority.shape)
 
         majority = np.copy(self._majority)
@@ -110,7 +113,7 @@ class AECCR:
                     remaining_energy -= radius_change * (current_majority + 1.0)
                     current_majority += 1
 
-            radii[i] = r
+            self.radii[i] = r
 
             for j in range(current_majority):
                 majority_point = majority[sorted_distances[j]]
@@ -128,19 +131,21 @@ class AECCR:
 
         majority += translations
 
-        appended = []
+        self.appended = []
 
         for i in range(len(minority)):
             minority_point = minority[i]
-            synthetic_samples = int(np.round(1.0 / (radii[i] * np.sum(1.0 / radii)) * self._n))
-            r = radii[i]
+            synthetic_samples = int(np.round(1.0 / (self.radii[i] * np.sum(1.0 / self.radii)) * self._n))
+            r = self.radii[i]
 
             for _ in range(synthetic_samples):
-                appended.append(minority_point + taxicab_sample(len(minority_point), r))
+                self.appended.append(minority_point + taxicab_sample(len(minority_point), r))
 
-        return np.concatenate([majority, minority, appended]), \
+        self.appended = np.array(self.appended)
+
+        return np.concatenate([majority, minority, self.appended]), \
                np.concatenate([np.tile([self._majority_class], len(majority)),
-                               np.tile([self._minority_class], len(minority) + len(appended))])
+                               np.tile([self._minority_class], len(minority) + len(self.appended))])
 
 
 class PymooProblem(ElementwiseProblem):
@@ -179,7 +184,7 @@ class PymooProblem(ElementwiseProblem):
 
 
 class MOO_CCRSelection:
-    def __init__(self, classifier, measures, n_splits=1, energies=(0.25,), scaling_factors=(0.0,), n=None, criteria=['best'], test_size=0.5, save_directory='exp'):
+    def __init__(self, classifier, measures, n_splits=1, energies=(0.25,), scaling_factors=(0.0,), n=None, criteria=['best'], test_size=0.2, save_directory='exp'):
         self.classifier = classifier
         self.measures = measures
         self.n_splits = n_splits
@@ -212,15 +217,19 @@ class MOO_CCRSelection:
                 picked_solutions.append(pick_balanced(solutions, objectives))
         return picked_solutions
 
-
-    def fit_sample(self, X, y):
+    def fit_sample(self, X, y, if_visualize=False):
         self.sss.get_n_splits(X, y)
         classes = np.unique(y)
 
         X = X.astype('float32')
         y = y.astype('float32')
 
+        if if_visualize:
+            X, y = visualisation.prepare_data(X,y)
+
         for train_idx, test_idx in self.sss.split(X, y):
+            X_train = X[train_idx]
+            y_train = y[train_idx]
             sizes = [sum(y[train_idx] == c) for c in classes]
             aeccr = AECCR(X[train_idx], y[train_idx])
             problem = PymooProblem(min(sizes), aeccr, self.classifier, X[train_idx], y[train_idx], X[test_idx], y[test_idx], self.measures)
@@ -246,6 +255,15 @@ class MOO_CCRSelection:
 
         solutions = self.pick_solutions(res, self.criteria)
 
+        cr = ['best_pre', 'best_rec', 'balanced']
+
+        if if_visualize:
+            print(self.save_directory)
+            for i, s in enumerate(solutions):
+                print(s)
+                X_, y_ = aeccr.fit_sample(s)
+                visualisation.visualize(X_[:X[train_idx].shape[0]], y_[:y[train_idx].shape[0]], appended=aeccr.appended, radii=aeccr.radii, file_name=os.path.join(self.save_directory, cr[i]), energy=s)
+
         return [aeccr.fit_sample(energy) for energy in solutions]
 
 
@@ -254,6 +272,8 @@ class CCR:
         self.energy = energy
         self.scaling = scaling
         self.n = n
+        self.radii = None
+        self.appended = None
 
     def fit_sample(self, X, y):
         classes = np.unique(y)
@@ -279,7 +299,7 @@ class CCR:
             for j in range(len(majority)):
                 distances[i][j] = distance(minority[i], majority[j])
 
-        radii = np.zeros(len(minority))
+        self.radii = np.zeros(len(minority))
         translations = np.zeros(majority.shape)
 
         for i in range(len(minority)):
@@ -317,7 +337,7 @@ class CCR:
                     remaining_energy -= radius_change * (current_majority + 1.0)
                     current_majority += 1
 
-            radii[i] = r
+            self.radii[i] = r
 
             for j in range(current_majority):
                 majority_point = majority[sorted_distances[j]]
@@ -333,37 +353,43 @@ class CCR:
 
         majority += translations
 
-        appended = []
+        self.appended = []
 
         for i in range(len(minority)):
             minority_point = minority[i]
-            synthetic_samples = int(np.round(1.0 / (radii[i] * np.sum(1.0 / radii)) * n))
-            r = radii[i]
+            synthetic_samples = int(np.round(1.0 / (self.radii[i] * np.sum(1.0 / self.radii)) * n))
+            r = self.radii[i]
 
             for _ in range(synthetic_samples):
-                appended.append(minority_point + taxicab_sample(len(minority_point), r))
+                self.appended.append(minority_point + taxicab_sample(len(minority_point), r))
 
-        return np.concatenate([majority, minority, appended]), \
+        self.appended = np.array(self.appended)
+
+        return np.concatenate([majority, minority, self.appended]), \
                np.concatenate([np.tile([majority_class], len(majority)),
-                               np.tile([minority_class], len(minority) + len(appended))])
+                               np.tile([minority_class], len(minority) + len(self.appended))])
 
 
 class CCRSelection:
-    def __init__(self, classifier, measure, n_splits=5, energies=(0.25,), scaling_factors=(0.0,), n=None):
+    def __init__(self, classifier, measure, n_splits=5, energies=(0.25,), scaling_factors=(0.0,), n=None, save_directory='exp'):
         self.classifier = classifier
         self.measure = measure
         self.n_splits = n_splits
         self.energies = energies
         self.scaling_factors = scaling_factors
         self.n = n
+        self.save_directory = save_directory
         self.selected_energy = None
         self.selected_scaling = None
         self.skf = StratifiedKFold(n_splits=n_splits)
 
-    def fit_sample(self, X, y):
+    def fit_sample(self, X, y, if_visualize=False):
         self.skf.get_n_splits(X, y)
 
         best_score = -np.inf
+
+        if if_visualize:
+            X, y = visualisation.prepare_data(X, y)
 
         for energy in self.energies:
             for scaling in self.scaling_factors:
@@ -384,5 +410,9 @@ class CCRSelection:
                     self.selected_scaling = scaling
 
                     best_score = score
+
+        ccr = CCR(energy=self.selected_energy, scaling=self.selected_scaling, n=self.n)
+        X_, y_ = ccr.fit_sample(X, y)
+        visualisation.visualize(X_[:X.shape[0]], y_[:y.shape[0]], appended=ccr.appended, radii=ccr.radii, file_name=self.save_directory)
 
         return CCR(energy=self.selected_energy, scaling=self.selected_scaling, n=self.n).fit_sample(X, y)
