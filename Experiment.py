@@ -35,12 +35,15 @@ file_list = ["pima", "yeast4", "yeast5", "winequality-white-3-9_vs_5"]
 
 
 def experiment(data, classifier, path="plot", **kwargs):
-    metrics_array = np.empty((len(criteria), 10, len(metrics)))
-    # metrics_array = np.empty((10, len(metrics)))
+    # metrics_array = np.empty((len(criteria), 10, len(metrics)))
+    metrics_array = np.empty((10, len(metrics)))
+    energies = (0.25, 0.5, 1, 5, 10, 25, 50, 100)
     try:
         os.mkdir(path)
     except:
         print("ojej")
+
+
 
     for i, fold in enumerate(data):
         fold_path = os.path.join(path, "fold" + str(i))
@@ -49,34 +52,34 @@ def experiment(data, classifier, path="plot", **kwargs):
         except:
             print("ojej")
         # #
-        ccr = algorithm.MOO_CCRSelection(classifier, [precision_score, recall_score], criteria=['best','balanced'], test_size=0.2, save_directory=fold_path, )
-        resampled_data = ccr.fit_sample(fold[0][0], fold[0][1], if_visualize=True)
-        # ccr = algorithm.CCRSelection(classifier, balanced_accuracy_score, save_directory=fold_path)
-        # resampled_data = ccr.fit_sample(fold[0][0], fold[0][1], if_visualize=True)
-        for ic, cr in enumerate(criteria):
-            data = resampled_data[ic]
-            c = clone(classifier)
-            c.fit(data[0], data[1])
-            # y_pred = c.predict(fold[1][0])
-            # df = pd.DataFrame(y_pred)
-            # df.to_csv(os.path.join(fold_path, "classifier_prediction_" + cr + ".csv"))
-            # for im, metric in enumerate(metrics):
-            #     metrics_array[ic, i, im] = metric(fold[1][1], y_pred)
+        # ccr = algorithm.MOO_CCRSelection(classifier, [precision_score, recall_score], criteria=['best','balanced'], test_size=0.2, save_directory=fold_path, )
+        # resampled_data = ccr.fit_sample(fold[0][0], fold[0][1])
+        ccr = algorithm.CCRSelection(classifier, balanced_accuracy_score, save_directory=fold_path, energies=energies)
+        resampled_data = ccr.fit_sample(fold[0][0], fold[0][1])
+        # for ic, cr in enumerate(criteria):
+        #     data = resampled_data[ic]
+        #     c = clone(classifier)
+        #     c.fit(data[0], data[1])
+        #     y_pred = c.predict(fold[1][0])
+        #     df = pd.DataFrame(y_pred)
+        #     df.to_csv(os.path.join(fold_path, "classifier_prediction_" + cr + ".csv"))
+        #     for im, metric in enumerate(metrics):
+        #         metrics_array[ic, i, im] = metric(fold[1][1], y_pred)
 
-        # data, y = resampled_data
-        # c = clone(classifier)
-        # c.fit(data, y)
-        # # y_pred = c.predict(fold[1][0])
-        # # df = pd.DataFrame(y_pred)
-        # # df.to_csv(os.path.join(fold_path, "classifier_prediction_ccr.csv"))
-        # # for im, metric in enumerate(metrics):
-        # #     metrics_array[i, im] = metric(fold[1][1], y_pred)
+        data, y = resampled_data
+        c = clone(classifier)
+        c.fit(data, y)
+        y_pred = c.predict(fold[1][0])
+        df = pd.DataFrame(y_pred)
+        df.to_csv(os.path.join(fold_path, "classifier_prediction_ccr.csv"))
+        for im, metric in enumerate(metrics):
+            metrics_array[i, im] = metric(fold[1][1], y_pred)
 
-    return np.mean(metrics_array, axis=1)
-    # return np.mean(metrics_array, axis=0)
+    # return np.mean(metrics_array, axis=1)
+    return np.mean(metrics_array, axis=0)
 
 
-def conduct_experiment(path="experiments_vis4-20"):
+def conduct_experiment(path="experiments-ccr"):
     data_set = []
     for file in file_list:
         data_set.append(load(file))
@@ -91,8 +94,8 @@ def conduct_experiment(path="experiments_vis4-20"):
     for i, data in enumerate(data_set):
         results = experiment(data, classifier, os.path.join(path, file_list[i]))
         for im, metric in enumerate(metrics):
-            metrics_dfs[im].at[file_list[i]] = results[:,im]
-            # metrics_dfs[im].at[file_list[i]] = results[im]
+            # metrics_dfs[im].at[file_list[i]] = results[:,im]
+            metrics_dfs[im].at[file_list[i]] = results[im]
             metrics_dfs[im].to_csv(os.path.join(path, "results_" + metric.__name__ + ".csv"))
 
 

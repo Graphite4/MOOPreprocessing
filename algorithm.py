@@ -62,17 +62,102 @@ class AECCR:
             for j in range(len(self._majority)):
                 self._distances[i][j] = distance(self._minority[i], self._majority[j])
 
-    def fit_sample(self, energy=0.25):
+    # def fit_sample(self, energy=0.25):
+    #
+    #     if not isinstance(energy, np.ndarray):
+    #         energy = np.array([energy for i in range(self._minority.shape[0])])
+    #
+    #     if np.sum(energy) == 0:
+    #         return self._X, self._y
+    #
+    #     energy = energy * (self._X.shape[1] ** self.scaling)
+    #
+    #     self.radii = np.zeros(len(self._minority))
+    #     translations = np.zeros(self._majority.shape)
+    #
+    #     majority = np.copy(self._majority)
+    #     minority = np.copy(self._minority)
+    #
+    #     for i in range(len(minority)):
+    #         minority_point = minority[i]
+    #         remaining_energy = energy[i]
+    #         r = 0.0
+    #         sorted_distances = np.argsort(self._distances[i])
+    #         current_majority = 0
+    #
+    #         while True:
+    #             if current_majority == len(majority):
+    #                 if current_majority == 0:
+    #                     radius_change = remaining_energy / (current_majority + 1.0)
+    #                 else:
+    #                     radius_change = remaining_energy / current_majority
+    #
+    #                 r += radius_change
+    #
+    #                 break
+    #
+    #             radius_change = remaining_energy / (current_majority + 1.0)
+    #
+    #             if self._distances[i, sorted_distances[current_majority]] >= r + radius_change:
+    #                 r += radius_change
+    #
+    #                 break
+    #             else:
+    #                 if current_majority == 0:
+    #                     last_distance = 0.0
+    #                 else:
+    #                     last_distance = self._distances[i, sorted_distances[current_majority - 1]]
+    #
+    #                 radius_change = self._distances[i, sorted_distances[current_majority]] - last_distance
+    #                 r += radius_change
+    #                 remaining_energy -= radius_change * (current_majority + 1.0)
+    #                 current_majority += 1
+    #
+    #         self.radii[i] = r
+    #
+    #         for j in range(current_majority):
+    #             majority_point = majority[sorted_distances[j]]
+    #             d = self._distances[i, sorted_distances[j]]
+    #
+    #             if d < 1e-20:
+    #                 dif = (1e-6 * np.random.rand(len(majority_point)) + 1e-6) * \
+    #                                   np.random.choice([-1.0, 1.0], len(majority_point))
+    #                 majority_point += dif
+    #                 d = distance(minority_point, majority_point)
+    #
+    #             translation = (r - d) / d * (majority_point - minority_point)
+    #
+    #             translations[sorted_distances[j]] += translation
+    #
+    #     majority += translations
+    #
+    #     self.appended = []
+    #
+    #     for i in range(len(minority)):
+    #         minority_point = minority[i]
+    #         synthetic_samples = int(np.round(1.0 / (self.radii[i] * np.sum(1.0 / self.radii)) * self._n))
+    #         r = self.radii[i]
+    #
+    #         for _ in range(synthetic_samples):
+    #             self.appended.append(minority_point + taxicab_sample(len(minority_point), r))
+    #
+    #     self.appended = np.array(self.appended)
+    #
+    #     return np.concatenate([majority, minority, self.appended]), \
+    #            np.concatenate([np.tile([self._majority_class], len(majority)),
+    #                            np.tile([self._minority_class], len(minority) + len(self.appended))])
 
-        if not isinstance(energy, np.ndarray):
-            energy = np.array([energy for i in range(self._minority.shape[0])])
+    def fit_sample(self, rads=0.25, fracs=1):
 
-        if np.sum(energy) == 0:
-            return self._X, self._y
+        if not isinstance(rads, np.ndarray):
+            rads = np.array([rads for i in range(self._minority.shape[0])])
 
-        energy = energy * (self._X.shape[1] ** self.scaling)
+        if not isinstance(fracs, np.ndarray):
+            fracs = np.array([fracs for i in range(self._minority.shape[0])])
 
-        self.radii = np.zeros(len(self._minority))
+        fracs = fracs/sum(fracs)
+
+        self.radii = rads
         translations = np.zeros(self._majority.shape)
 
         majority = np.copy(self._majority)
@@ -80,40 +165,9 @@ class AECCR:
 
         for i in range(len(minority)):
             minority_point = minority[i]
-            remaining_energy = energy[i]
-            r = 0.0
+            r = self.radii[i]
             sorted_distances = np.argsort(self._distances[i])
             current_majority = 0
-
-            while True:
-                if current_majority == len(majority):
-                    if current_majority == 0:
-                        radius_change = remaining_energy / (current_majority + 1.0)
-                    else:
-                        radius_change = remaining_energy / current_majority
-
-                    r += radius_change
-
-                    break
-
-                radius_change = remaining_energy / (current_majority + 1.0)
-
-                if self._distances[i, sorted_distances[current_majority]] >= r + radius_change:
-                    r += radius_change
-
-                    break
-                else:
-                    if current_majority == 0:
-                        last_distance = 0.0
-                    else:
-                        last_distance = self._distances[i, sorted_distances[current_majority - 1]]
-
-                    radius_change = self._distances[i, sorted_distances[current_majority]] - last_distance
-                    r += radius_change
-                    remaining_energy -= radius_change * (current_majority + 1.0)
-                    current_majority += 1
-
-            self.radii[i] = r
 
             for j in range(current_majority):
                 majority_point = majority[sorted_distances[j]]
@@ -135,7 +189,7 @@ class AECCR:
 
         for i in range(len(minority)):
             minority_point = minority[i]
-            synthetic_samples = int(np.round(1.0 / (self.radii[i] * np.sum(1.0 / self.radii)) * self._n))
+            synthetic_samples = int(fracs[i] * self._n)
             r = self.radii[i]
 
             for _ in range(synthetic_samples):
@@ -149,8 +203,8 @@ class AECCR:
 
 
 class PymooProblem(ElementwiseProblem):
-    def __init__(self, n_var, aeccr, classifier, X_train, y_train, X_test, y_test, measures):
-        self.n_var = n_var
+    def __init__(self, n_min, aeccr, classifier, X_train, y_train, X_test, y_test, measures):
+        self.n_var = 2*n_min
         self.measures = measures
         self.classifier = classifier
         self.X_train = X_train
@@ -161,11 +215,13 @@ class PymooProblem(ElementwiseProblem):
         super().__init__(n_var=self.n_var,
                          n_obj=len(measures),
                          n_constr=0,
-                         xl=np.full((n_var,), 0.0),
-                         xu=np.full((n_var,), 1.0))
+                         xl=np.full((2*n_min,), 0.0),
+                         xu=np.full((2*n_min,), 1.0))
 
     def _evaluate(self, x, out, *args, **kwargs):
-        new_X, new_y = self.aeccr.fit_sample(x)
+        rads = x[0:int(self.n_var/2)]
+        fracs = x[int(self.n_var/2):]
+        new_X, new_y = self.aeccr.fit_sample(rads, fracs)
         c = clone(self.classifier)
         try:
             c.fit(new_X, new_y)
@@ -411,8 +467,10 @@ class CCRSelection:
 
                     best_score = score
 
-        ccr = CCR(energy=self.selected_energy, scaling=self.selected_scaling, n=self.n)
-        X_, y_ = ccr.fit_sample(X, y)
-        visualisation.visualize(X_[:X.shape[0]], y_[:y.shape[0]], appended=ccr.appended, radii=ccr.radii, file_name=self.save_directory)
+        # ccr = CCR(energy=self.selected_energy, scaling=self.selected_scaling, n=self.n)
+        # X_, y_ = ccr.fit_sample(X, y)
+        # visualisation.visualize(X_[:X.shape[0]], y_[:y.shape[0]], appended=ccr.appended, radii=ccr.radii, file_name=self.save_directory)
+        print(self.save_directory)
+        print(self.selected_energy)
 
         return CCR(energy=self.selected_energy, scaling=self.selected_scaling, n=self.n).fit_sample(X, y)
