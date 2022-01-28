@@ -32,9 +32,9 @@ REGIONS_STEPS = 1000
 REGIONS_THRESHOLD = 0.33
 
 
-def visualize(X, y, appended=None, gamma=None, radii=None,
+def visualize(X, y, X_test=None, y_test=None, appended=None, gamma=None, radii=None,
               regions_center=None, regions_radius=None,
-              p_norm=2, file_name=None, lim=None, energy=None):
+              p_norm=2, file_name=None, lim=None, energy=None, samples=None, translated=None):
     assert len(np.unique(y)) == 2
     assert X.shape[1] == 2
 
@@ -148,8 +148,6 @@ def visualize(X, y, appended=None, gamma=None, radii=None,
         alpha=ALPHA, marker=MARKER_SYMBOL, edgecolors=ORIGINAL_EDGE_COLOR
     )
 
-
-
     if appended is not None:
         plt.scatter(
             appended[:, 0], appended[:, 1],
@@ -163,9 +161,34 @@ def visualize(X, y, appended=None, gamma=None, radii=None,
     alpha=ALPHA, marker=MARKER_SYMBOL, edgecolors=ORIGINAL_EDGE_COLOR
     )
 
-    if energy is not None:
-        for i, en in enumerate(energy):
-            plt.annotate("{:.3f}".format(en), (minority_points[i,0], minority_points[i,1]))
+    if radii is not None:
+        for i, en in enumerate(radii):
+            plt.annotate("{:.3f};{}".format(en, samples[i]), (minority_points[i,0], minority_points[i,1]))
+
+    if X_test is not None and y_test is not None:
+        minority_test_points = X_test[y_test == minority_class].copy()
+        majority_test_points = X_test[y_test != minority_class].copy()
+
+        plt.scatter(
+            majority_test_points[:, 0], majority_test_points[:, 1],
+            s=MARKER_SIZE, c='#e7c2c2', linewidths=LINE_WIDTH,
+            alpha=ALPHA, marker=MARKER_SYMBOL, edgecolors=ORIGINAL_EDGE_COLOR
+         )
+        plt.scatter(
+            minority_test_points[:, 0], minority_test_points[:, 1],
+            s=MARKER_SIZE, c="#4ab898", linewidths=LINE_WIDTH,
+            alpha=ALPHA, marker=MARKER_SYMBOL, edgecolors=ORIGINAL_EDGE_COLOR
+            )
+
+    if translated is not None:
+        plt.scatter(
+            translated[:, 0], translated[:, 1],
+            s=MARKER_SIZE, c="gold", linewidths=LINE_WIDTH,
+            alpha=ALPHA, marker=MARKER_SYMBOL, edgecolors=ORIGINAL_EDGE_COLOR
+        )
+
+
+
 
     if gamma is not None:
         x_cont = np.linspace(x_limits[0], x_limits[1], POTENTIAL_GRID_N + 1)

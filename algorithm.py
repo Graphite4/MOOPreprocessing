@@ -2,7 +2,9 @@ import numpy as np
 
 from sklearn.model_selection import StratifiedKFold
 from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import train_test_split
 from sklearn.base import clone
+from sklearn.metrics import f1_score, precision_score, recall_score,  balanced_accuracy_score, roc_auc_score
 
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.core.problem import ElementwiseProblem
@@ -17,8 +19,8 @@ import pickle
 import os
 
 
-def distance(x, y):
-    return np.sum(np.abs(x - y))
+def distance(x, y, p_norm=2):
+    return np.sum(np.abs(x - y) ** p_norm) ** (1 / p_norm)
 
 
 def taxicab_sample(n, r):
@@ -167,7 +169,9 @@ class AECCR:
             minority_point = minority[i]
             r = self.radii[i]
             sorted_distances = np.argsort(self._distances[i])
-            current_majority = 0
+
+            current_majority = len(self._distances[i][self._distances[i] < r])
+
 
             for j in range(current_majority):
                 majority_point = majority[sorted_distances[j]]
@@ -185,11 +189,14 @@ class AECCR:
 
         majority += translations
 
-        self.appended = []
+        self.translated_samples = majority[~np.all(translations == 0, axis=1)]
 
+        self.appended = []
+        self.samples = []
         for i in range(len(minority)):
             minority_point = minority[i]
             synthetic_samples = int(fracs[i] * self._n)
+            self.samples.append(synthetic_samples)
             r = self.radii[i]
 
             for _ in range(synthetic_samples):
@@ -216,11 +223,12 @@ class PymooProblem(ElementwiseProblem):
                          n_obj=len(measures),
                          n_constr=0,
                          xl=np.full((2*n_min,), 0.0),
-                         xu=np.full((2*n_min,), 1.0))
+                         xu=np.full((2*n_min,), 0.5))
 
     def _evaluate(self, x, out, *args, **kwargs):
         rads = x[0:int(self.n_var/2)]
         fracs = x[int(self.n_var/2):]
+
         new_X, new_y = self.aeccr.fit_sample(rads, fracs)
         c = clone(self.classifier)
         try:
@@ -235,7 +243,10 @@ class PymooProblem(ElementwiseProblem):
             df_y.to_csv('blad_y.csv')
 
         y_pred = c.predict(self.X_test)
+        # for j, m in enumerate(self.measures):
+        #     measures_values[i,j] = -m(self.y_test, y_pred)
         measures_values = [-m(self.y_test, y_pred) for m in self.measures]
+        # measures_values = measures_values.mean(axis=0)
         out["F"] = measures_values
 
 
@@ -251,7 +262,7 @@ class MOO_CCRSelection:
         self.save_directory = save_directory
         self.selected_energy = None
         self.selected_scaling = None
-        self.sss = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size)
+        self.test_size = test_size
 
     def pick_solutions(self, results, criteria):
         def pick_best(solutions, objectives, index):
@@ -274,7 +285,7 @@ class MOO_CCRSelection:
         return picked_solutions
 
     def fit_sample(self, X, y, if_visualize=False):
-        self.sss.get_n_splits(X, y)
+
         classes = np.unique(y)
 
         X = X.astype('float32')
@@ -283,44 +294,105 @@ class MOO_CCRSelection:
         if if_visualize:
             X, y = visualisation.prepare_data(X,y)
 
-        for train_idx, test_idx in self.sss.split(X, y):
-            X_train = X[train_idx]
-            y_train = y[train_idx]
-            sizes = [sum(y[train_idx] == c) for c in classes]
-            aeccr = AECCR(X[train_idx], y[train_idx])
-            problem = PymooProblem(min(sizes), aeccr, self.classifier, X[train_idx], y[train_idx], X[test_idx], y[test_idx], self.measures)
-            algorithm = NSGA2(
-                pop_size=100,
-                sampling=get_sampling("real_random"),
-                crossover=get_crossover("real_ux"),
-                mutation=get_mutation("real_pm"),
-                eliminate_duplicates=True
-            )
-            termination = get_termination("n_gen", 100)
-            res = minimize(problem,
-                           algorithm,
-                           termination,
-                           seed=1,
-                           save_history=True,
-                           verbose=True)
+        try:
+            sss = StratifiedShuffleSplit(n_splits=1, test_size=self.test_size)
+            sss.get_n_splits(X, y)
+            for train_idx, test_idx in sss.split(X,y):
+                pass
+        except:
+            train_idx = range(len(y))
+            test_idx = range(len(y))
 
-        filename = os.path.join(self.save_directory, "optimisation_results")
+        sizes = [sum(y[train_idx] == c) for c in classes]
+        aeccr = AECCR(X[train_idx], y[train_idx])
+        problem = PymooProblem(min(sizes), aeccr, self.classifier, X[train_idx], y[train_idx], X[test_idx], y[test_idx], self.measures)
+        algorithm = NSGA2(
+            pop_size=100,
+            sampling=get_sampling("real_random"),
+            crossover=get_crossover("real_ux"),
+            mutation=get_mutation("real_pm"),
+            eliminate_duplicates=True
+        )
+        termination = get_termination("n_gen", 1000)
+        res = minimize(problem,
+                       algorithm,
+                       termination,
+                       seed=1,
+                       save_history=True,
+                       verbose=True)
+
+
+        filename = os.path.join(self.save_directory, "optimisation_results1")
+        outfile = open(filename, 'wb')
+        pickle.dump(res, outfile)
+        outfile.close()
+
+        sizes2 = [sum(y[test_idx] == c) for c in classes]
+        aeccr2 = AECCR(X[test_idx], y[test_idx])
+        problem = PymooProblem(min(sizes2), aeccr2, self.classifier, X[test_idx], y[test_idx], X[train_idx], y[train_idx], self.measures)
+        algorithm = NSGA2(
+            pop_size=100,
+            sampling=get_sampling("real_random"),
+            crossover=get_crossover("real_ux"),
+            mutation=get_mutation("real_pm"),
+            eliminate_duplicates=True
+        )
+        termination = get_termination("n_gen", 1000)
+        res2 = minimize(problem,
+                       algorithm,
+                       termination,
+                       seed=1,
+                       save_history=True,
+                       verbose=True)
+
+
+        filename = os.path.join(self.save_directory, "optimisation_results2")
         outfile = open(filename, 'wb')
         pickle.dump(res, outfile)
         outfile.close()
 
         solutions = self.pick_solutions(res, self.criteria)
+        solutions2 = self.pick_solutions(res2, self.criteria)
+
+        min1 = min(sizes)
+        min2 = min(sizes2)
+
+        solutions_merged = [np.zeros((min1+min2)*2) for sol in solutions]
+
+        for i in range(len(solutions)):
+            solutions_merged[i][:min1] = solutions[i][:min1]
+            solutions_merged[i][min1:min1+min2] = solutions2[i][:min2]
+            solutions_merged[i][min1+min2:2*min1+min2] = solutions[i][min1:]
+            solutions_merged[i][2*min1+min2:] = solutions2[i][min2:]
+
+        # cr = ['best_pre', 'best_rec', 'balanced']
+        #
+        # if if_visualize:
+        #     print(self.save_directory)
+        #     visualisation.visualize(X, y, file_name=self.save_directory)
+        #     for i, s in enumerate(solutions):
+        #         print(s)
+        #         X_, y_ = aeccr.fit_sample(s[0:min(sizes)], s[min(sizes):])
+        #         visualisation.visualize(X_[:X[train_idx].shape[0]], y_[:y[train_idx].shape[0]], appended=aeccr.appended,
+        #                                 X_test=X[test_idx], y_test=y[test_idx], radii=aeccr.radii, file_name=os.path.join(self.save_directory, cr[i]),
+        #                                 samples=aeccr.samples, translated=aeccr.translated_samples)
 
         cr = ['best_pre', 'best_rec', 'balanced']
 
+        aeccr_full = AECCR(np.concatenate((X[train_idx], X[test_idx]), axis=0), np.concatenate((y[train_idx], y[test_idx]), axis=0))
+
         if if_visualize:
             print(self.save_directory)
-            for i, s in enumerate(solutions):
-                print(s)
-                X_, y_ = aeccr.fit_sample(s)
-                visualisation.visualize(X_[:X[train_idx].shape[0]], y_[:y[train_idx].shape[0]], appended=aeccr.appended, radii=aeccr.radii, file_name=os.path.join(self.save_directory, cr[i]), energy=s)
+            visualisation.visualize(X, y, file_name=self.save_directory)
 
-        return [aeccr.fit_sample(energy) for energy in solutions]
+            for i, s in enumerate(solutions_merged):
+                print(s)
+                X_, y_ = aeccr_full.fit_sample(s[0:min1+min2], s[min1+min2:])
+                visualisation.visualize(X_[:X.shape[0]], y_[:y.shape[0]], appended=aeccr_full.appended,
+                                        radii=aeccr_full.radii, file_name=os.path.join(self.save_directory, cr[i]),
+                                        samples=aeccr_full.samples, translated=aeccr_full.translated_samples)
+
+        return [aeccr_full.fit_sample(x[0:min1+min2], x[min1+min2:]) for x in solutions_merged]
 
 
 class CCR:
@@ -467,9 +539,9 @@ class CCRSelection:
 
                     best_score = score
 
-        # ccr = CCR(energy=self.selected_energy, scaling=self.selected_scaling, n=self.n)
-        # X_, y_ = ccr.fit_sample(X, y)
-        # visualisation.visualize(X_[:X.shape[0]], y_[:y.shape[0]], appended=ccr.appended, radii=ccr.radii, file_name=self.save_directory)
+        ccr = CCR(energy=self.selected_energy, scaling=self.selected_scaling, n=self.n)
+        X_, y_ = ccr.fit_sample(X, y)
+        visualisation.visualize(X_[:X.shape[0]], y_[:y.shape[0]], appended=ccr.appended, radii=ccr.radii, file_name=self.save_directory)
         print(self.save_directory)
         print(self.selected_energy)
 
